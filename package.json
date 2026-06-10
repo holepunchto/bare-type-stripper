@@ -1,6 +1,6 @@
 {
   "name": "bare-type-stripper",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Heuristic lexer for stripping TypeScript type syntax to produce plain JavaScript",
   "exports": {
     "./package": "./package.json",
