@@ -12,7 +12,7 @@ module.exports = exports = function strip(input, encoding, opts = {}) {
 
   const buffer = typeof input === 'string' ? Buffer.from(input, encoding) : input
 
-  const { ranges } = binding.lex(buffer)
+  const ranges = binding.lex(buffer)
 
   check(buffer, ranges)
 
@@ -29,7 +29,7 @@ exports.lex = function lex(input, encoding, opts = {}) {
     throw new TypeError(`Input must be a string or buffer. Received type ${typeof input}`)
   }
 
-  const { ranges } = binding.lex(typeof input === 'string' ? Buffer.from(input, encoding) : input)
+  const ranges = binding.lex(typeof input === 'string' ? Buffer.from(input, encoding) : input)
 
   // The binding returns the ranges as a flat Uint32Array of (start, end,
   // flags) triples; reshape into the nested form.
@@ -41,7 +41,7 @@ exports.lex = function lex(input, encoding, opts = {}) {
     result.push(flags ? [ranges[r], ranges[r + 1], flags] : [ranges[r], ranges[r + 1]])
   }
 
-  return { ranges: result }
+  return result
 }
 
 exports.constants = {

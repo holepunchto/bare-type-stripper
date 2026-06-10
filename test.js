@@ -613,7 +613,7 @@ test('export enum throws', (t) => {
 })
 
 test('enum lexes as a single error range', (t) => {
-  const { ranges } = strip.lex('enum E { A, B }')
+  const ranges = strip.lex('enum E { A, B }')
   t.alike(ranges, [[0, 15, strip.constants.ERROR]])
 })
 
@@ -872,23 +872,23 @@ test('deeply nested parens lex without quadratic blowup', (t) => {
 })
 
 test('lex returns ranges', (t) => {
-  const { ranges } = strip.lex('const x: number = 1')
+  const ranges = strip.lex('const x: number = 1')
   t.alike(ranges, [[7, 16]])
 })
 
 test('lex on plain code returns no ranges', (t) => {
-  const { ranges } = strip.lex('const x = 1')
+  const ranges = strip.lex('const x = 1')
   t.alike(ranges, [])
 })
 
 test('lex emits semi flag for statement-level strips', (t) => {
-  const { ranges } = strip.lex('type T = number')
+  const ranges = strip.lex('type T = number')
   t.alike(ranges, [[0, 15, strip.constants.SEMI]])
 })
 
 test('lex emits paren flag for relocated )', (t) => {
   const src = 'let f = (a: string, b: string): Array<\n   string\n> => [a, b];'
-  const { ranges } = strip.lex(src)
+  const ranges = strip.lex(src)
   const last = ranges[ranges.length - 1]
   t.is(last[1] - last[0], 1)
   t.is(last[2] & strip.constants.PAREN, strip.constants.PAREN)
