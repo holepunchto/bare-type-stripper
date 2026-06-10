@@ -57,7 +57,7 @@ strip.lex('const x: number = 1')
 | Type-only imports/exports | `import type { Foo } from 'mod'`      |
 | Generics at declarations  | `function f<T>(x: T): T`              |
 | Generics at call sites    | `foo<number>()`                       |
-| Generic arrow functions   | `<T,>(x: T) => x`, `<T>(x: T) => x`   |
+| Generic arrow functions   | `<T>(x: T) => x`                      |
 | Type assertions           | `x as Foo`, `x satisfies Foo`         |
 | Non-null assertion        | `obj!.foo`                            |
 | Optional parameter marker | `function f(x?: T)`                   |
