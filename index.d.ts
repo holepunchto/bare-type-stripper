@@ -7,9 +7,7 @@ declare namespace strip {
     input: string | Buffer,
     encoding?: BufferEncoding,
     opts?: object
-  ): {
-    ranges: [start: number, end: number, flags?: number][]
-  }
+  ): [start: number, end: number, flags?: number][]
 
   export const constants: {
     SEMI: number

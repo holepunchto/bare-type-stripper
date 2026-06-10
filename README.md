@@ -30,13 +30,13 @@ Throws a `SyntaxError` when the source contains non-erasable TypeScript syntax (
 
 Options are reserved.
 
-#### `const { ranges } = strip.lex(source[, encoding][, options])`
+#### `const ranges = strip.lex(source[, encoding][, options])`
 
 Return the raw `[start, end, flags?]` ranges that `strip()` would erase, without applying them. The optional third element is a bitmap of flags from `strip.constants` that controls how a single byte in the range is rewritten (instead of being blanked to a space).
 
 ```js
 strip.lex('const x: number = 1')
-// { ranges: [ [ 7, 16 ] ] }
+// [ [ 7, 16 ] ]
 ```
 
 #### `strip.constants`

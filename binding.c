@@ -51,14 +51,7 @@ bare_type_stripper_lex(js_env_t *env, js_callback_info_t *info) {
   err = js_create_typedarray(env, js_uint32array, ctx.len * 3, arraybuffer, 0, &ranges);
   assert(err == 0);
 
-  js_value_t *result;
-  err = js_create_object(env, &result);
-  assert(err == 0);
-
-  err = js_set_named_property(env, result, "ranges", ranges);
-  assert(err == 0);
-
-  return result;
+  return ranges;
 }
 
 static js_value_t *
