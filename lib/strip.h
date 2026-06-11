@@ -707,10 +707,12 @@ bare_type_stripper__scan_type(const utf8_t *s, size_t n, size_t i, uint32_t term
       // as 'op' keeps multi-line conditional types intact (e.g. 'T extends\n
       // U ? A : B').
       last_was_op =
+        (kl == 2 && memcmp(&s[ks], "is", 2) == 0) ||
         (kl == 5 && (memcmp(&s[ks], "infer", 5) == 0 ||
                      memcmp(&s[ks], "keyof", 5) == 0)) ||
         (kl == 6 && memcmp(&s[ks], "typeof", 6) == 0) ||
-        (kl == 7 && memcmp(&s[ks], "extends", 7) == 0);
+        (kl == 7 && (memcmp(&s[ks], "extends", 7) == 0 ||
+                     memcmp(&s[ks], "asserts", 7) == 0));
       seen_token = true;
       continue;
     }
@@ -1079,8 +1081,9 @@ bare_type_stripper__process_class_body(bare_type_stripper_t *ctx, size_t *result
       size_t peek = bare_type_stripper__skip_trivia(s, n, ke);
 
       // Erase modifier only if followed by another identifier (member name
-      // or another modifier), '[' (computed name), or '*' (generator).
-      if (peek < n && (ids(s[peek]) || s[peek] == '[' || s[peek] == '*')) {
+      // or another modifier), '#' (private name), '[' (computed name), '*'
+      // (generator), or a string or numeric member name.
+      if (peek < n && (ids(s[peek]) || s[peek] == '#' || s[peek] == '[' || s[peek] == '*' || s[peek] == '\'' || s[peek] == '"' || (s[peek] >= '0' && s[peek] <= '9'))) {
         uint32_t flags = member_strip_seen ? 0 : bare_type_stripper_semi;
 
         err = bare_type_stripper__add_range_flags(ctx, ks, peek, flags);

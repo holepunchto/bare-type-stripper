@@ -345,6 +345,30 @@ test('is predicate return type', (t) => {
   )
 })
 
+test('is predicate with object type', (t) => {
+  eq(
+    t,
+    'function f(value: unknown): value is { K: unknown } { return true }',
+    'function f(value         )                          { return true }'
+  )
+})
+
+test('asserts predicate with object type', (t) => {
+  eq(
+    t,
+    'function f(x: unknown): asserts x is { K: unknown } { return }',
+    'function f(x         )                              { return }'
+  )
+})
+
+test('arrow is predicate with object type', (t) => {
+  eq(
+    t,
+    'const f = (x: unknown): x is { a: A } => true',
+    'const f = (x         )                => true'
+  )
+})
+
 test('catch clause type annotation', (t) => {
   eq(t, 'try { f() } catch (e: unknown) { throw e }', 'try { f() } catch (e         ) { throw e }')
 })
@@ -431,6 +455,18 @@ test('class generic parameters', (t) => {
 
 test('readonly property', (t) => {
   eq(t, 'class C { readonly x: number = 1 }', 'class C { ;        x         = 1 }')
+})
+
+test('readonly private field', (t) => {
+  eq(t, 'class C { readonly #x: T = 1 }', 'class C { ;        #x    = 1 }')
+})
+
+test('stacked modifiers before private field', (t) => {
+  eq(t, 'class C { private readonly #x: T }', 'class C { ;                #x    }')
+})
+
+test('modifiers before string and numeric field names', (t) => {
+  eq(t, "class C { readonly 'a': T; readonly 0: T }", "class C { ;        'a'   ; ;        0    }")
 })
 
 test('override modifier', (t) => {
