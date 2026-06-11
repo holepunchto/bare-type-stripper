@@ -65,6 +65,14 @@ test('export type alias with multi-line union', (t) => {
   eq(t, 'export type T =\n  | A\n  | B\nconst x = 1', ';              \n     \n     \nconst x = 1')
 })
 
+test('export type alias with object body', (t) => {
+  eq(
+    t,
+    'export type Deps = {\n  readonly openUrl?: (url: string) => Promise<void>;\n  readonly timeoutMs?: number;\n}\nconst x = 1',
+    ';                   \n                                                    \n                              \n \nconst x = 1'
+  )
+})
+
 test('export type { T } without from clause', (t) => {
   eq(t, 'export type { T }\nconst x = 1', ';                \nconst x = 1')
 })
@@ -151,6 +159,14 @@ test('let annotation', (t) => {
 
 test('var annotation with union', (t) => {
   eq(t, 'var x: number | string = 1', 'var x                  = 1')
+})
+
+test('annotation with multiline generic object type', (t) => {
+  eq(
+    t,
+    'const SERIES: ReadonlyArray<{\n  readonly match: (name: string) => boolean;\n}> = []',
+    'const SERIES                 \n                                            \n   = []'
+  )
 })
 
 test('definite assignment !:', (t) => {
@@ -261,6 +277,38 @@ test('function overload signature stripped', (t) => {
   )
 })
 
+test('function overload signatures without semicolons stripped', (t) => {
+  eq(
+    t,
+    'function f(x: string): void\nfunction f(x: number): void\nfunction f(x) { return x }',
+    ';                          \n;                          \nfunction f(x) { return x }'
+  )
+})
+
+test('export function overload signatures stripped', (t) => {
+  eq(
+    t,
+    'export function f(x: string): void\nexport function f(x: number): void\nexport function f(x) { return x }',
+    ';                                 \n;                                 \nexport function f(x) { return x }'
+  )
+})
+
+test('export default function overload signature stripped', (t) => {
+  eq(
+    t,
+    'export default function f(x: string): void;\nexport default function f(x) { return x }',
+    ';                                          \nexport default function f(x) { return x }'
+  )
+})
+
+test('export function overload with async implementation', (t) => {
+  eq(
+    t,
+    'export function f(x: string): Promise<string[]>;\nexport async function f(x: string): Promise<string[]> {\n  return []\n}',
+    ';                                               \nexport async function f(x        )                    {\n  return []\n}'
+  )
+})
+
 test('generic with extends clause', (t) => {
   eq(
     t,
@@ -327,6 +375,14 @@ test('as between bitwise operators', (t) => {
 
 test('as Type does not consume following comparison', (t) => {
   eq(t, 'const x = 1 + 1 as number > 2', 'const x = 1 + 1           > 2')
+})
+
+test('as with intersection object type', (t) => {
+  eq(
+    t,
+    'if ((existing as SdkModel & { name?: string }).name !== catalog.name) f()',
+    'if ((existing                                ).name !== catalog.name) f()'
+  )
 })
 
 test('postfix non-null', (t) => {
@@ -428,16 +484,80 @@ test('parameter named like a modifier left alone', (t) => {
   eq(t, 'function f(readonly, override) {}', 'function f(readonly, override) {}')
 })
 
+test('function as property key left alone', (t) => {
+  eq(t, 'const o = { function: 1 }', 'const o = { function: 1 }')
+})
+
 test('class with method overloads + impl', (t) => {
   eq(
     t,
     'class C {\n  foo(x: number): number\n  foo(x: string): string\n  foo(x: any): any { return x }\n}',
-    'class C {\n  foo(x        )        \n  foo(x        )        \n  foo(x     )      { return x }\n}'
+    'class C {\n  ;                     \n  ;                     \n  foo(x     )      { return x }\n}'
+  )
+})
+
+test('class method overloads with semicolons stripped', (t) => {
+  eq(
+    t,
+    'class C {\n  foo(x: number): number;\n  foo(x: string): string;\n  foo(x: any): any { return x }\n}',
+    'class C {\n  ;                      \n  ;                      \n  foo(x     )      { return x }\n}'
+  )
+})
+
+test('constructor overloads stripped', (t) => {
+  eq(
+    t,
+    'class C {\n  constructor(x: string);\n  constructor(x: number);\n  constructor(x) { this.x = x }\n}',
+    'class C {\n  ;                      \n  ;                      \n  constructor(x) { this.x = x }\n}'
+  )
+})
+
+test('class method overload with modifier stripped', (t) => {
+  eq(
+    t,
+    'class C {\n  public foo(x: number): number;\n  public foo(x: any): any { return x }\n}',
+    'class C {\n  ;                             \n  ;      foo(x     )      { return x }\n}'
+  )
+})
+
+test('static method overload stripped', (t) => {
+  eq(
+    t,
+    'class C {\n  static foo(x: number): number;\n  static foo(x: any): any { return x }\n}',
+    'class C {\n  ;                             \n  static foo(x     )      { return x }\n}'
   )
 })
 
 test('abstract class strips abstract keyword', (t) => {
-  eq(t, 'abstract class A { abstract foo(): void }', '         class A { ;        foo()       }')
+  eq(t, 'abstract class A { abstract foo(): void }', '         class A { ;                    }')
+})
+
+test('abstract accessor signature stripped', (t) => {
+  eq(
+    t,
+    'abstract class A { abstract get x(): number }',
+    '         class A { ;                        }'
+  )
+})
+
+test('computed method strips annotations', (t) => {
+  eq(
+    t,
+    'class C { ["k"](x: number): number { return x } }',
+    'class C { ["k"](x        )         { return x } }'
+  )
+})
+
+test('computed generator method strips return annotation', (t) => {
+  eq(t, 'class C { *["k"](): any { yield 1 } }', 'class C { *["k"]()      { yield 1 } }')
+})
+
+test('computed accessor strips return annotation', (t) => {
+  eq(
+    t,
+    'class C { get ["k"](): number { return 1 } }',
+    'class C { get ["k"]()         { return 1 } }'
+  )
 })
 
 test('static initialization block left alone', (t) => {
@@ -454,6 +574,74 @@ test('class member decorator strips generic args', (t) => {
 
 test('class member decorator strips parenthesized cast', (t) => {
   eq(t, 'class C { @(foo as any) bar() {} }', 'class C { @(foo       ) bar() {} }')
+})
+
+test('object method return annotation', (t) => {
+  eq(
+    t,
+    'const o = { m(): Foo {\n    return {}\n  } }',
+    'const o = { m()      {\n    return {}\n  } }'
+  )
+})
+
+test('object method param annotation', (t) => {
+  eq(
+    t,
+    'const o = { m(x: number): number { return x } }',
+    'const o = { m(x        )         { return x } }'
+  )
+})
+
+test('async object method annotations', (t) => {
+  eq(
+    t,
+    'const o = { async m(x: T): Promise<U> { return g(x) } }',
+    'const o = { async m(x   )             { return g(x) } }'
+  )
+})
+
+test('generator object method return annotation', (t) => {
+  eq(t, 'const o = { *gen(): any { yield 1 } }', 'const o = { *gen()      { yield 1 } }')
+})
+
+test('object accessor annotations', (t) => {
+  eq(
+    t,
+    'const o = { get x(): number { return 1 }, set x(v: number) {} }',
+    'const o = { get x()         { return 1 }, set x(v        ) {} }'
+  )
+})
+
+test('object method generics', (t) => {
+  eq(t, 'const o = { m<T>(x: T): T { return x } }', 'const o = { m   (x   )    { return x } }')
+})
+
+test('computed object method annotations', (t) => {
+  eq(
+    t,
+    'const o = { ["k"](x: number): number { return x } }',
+    'const o = { ["k"](x        )         { return x } }'
+  )
+})
+
+test('object method between plain properties', (t) => {
+  eq(
+    t,
+    'const o = { a: 1, m(x: string): void { g(x) }, b: 2 }',
+    'const o = { a: 1, m(x        )       { g(x) }, b: 2 }'
+  )
+})
+
+test('object method in nested object literal', (t) => {
+  eq(
+    t,
+    'const o = { f() { return { g(): any { return 1 } } } }',
+    'const o = { f() { return { g()      { return 1 } } } }'
+  )
+})
+
+test('properties named like method prefixes left alone', (t) => {
+  eq(t, 'const o = { async: 1, get: 2, set: 3 }', 'const o = { async: 1, get: 2, set: 3 }')
 })
 
 test('arrow function param annotation', (t) => {
@@ -884,6 +1072,11 @@ test('lex on plain code returns no ranges', (t) => {
 test('lex emits semi flag for statement-level strips', (t) => {
   const ranges = strip.lex('type T = number')
   t.alike(ranges, [[0, 15, strip.constants.SEMI]])
+})
+
+test('lex emits a single range for an overload signature', (t) => {
+  const ranges = strip.lex('function f(x: string): void;')
+  t.alike(ranges, [[0, 28, strip.constants.SEMI]])
 })
 
 test('lex emits paren flag for relocated )', (t) => {

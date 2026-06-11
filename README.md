@@ -65,6 +65,8 @@ strip.lex('const x: number = 1')
 | Class member modifiers    | `public`, `private`, `readonly`, etc. |
 | `implements` clauses      | `class C implements I`                |
 | `declare` statements      | `declare const x: number`             |
+| Overload signatures       | `function f(x: string): void`         |
+| Abstract members          | `abstract foo(): void`                |
 
 ## What is left alone
 
