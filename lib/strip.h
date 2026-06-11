@@ -607,6 +607,15 @@ bare_type_stripper__scan_type(const utf8_t *s, size_t n, size_t i, uint32_t term
       continue;
     }
 
+    // '=>' inside brackets is part of an arrow type - consume it whole so
+    // its '>' can't be mistaken for the close of an enclosing '<'.
+    if (ch == '=' && depth > 0 && i + 1 < n && u(1) == '>') {
+      i += 2;
+      seen_token = true;
+      last_was_op = true;
+      continue;
+    }
+
     if (depth == 0) {
       if ((terms & BARE_TYPE_STRIPPER__T_COMMA) && ch == ',') return i;
       if ((terms & BARE_TYPE_STRIPPER__T_SEMI) && ch == ';') return i;
@@ -642,7 +651,10 @@ bare_type_stripper__scan_type(const utf8_t *s, size_t n, size_t i, uint32_t term
         continue;
       }
 
-      if ((terms & BARE_TYPE_STRIPPER__T_BRACE) && ch == '{' && seen_token) return i;
+      // A '{' directly after a type-level operator ('&', '|', 'extends',
+      // ...) is an object type literal operand, not the '{' the caller is
+      // waiting for - only stop on it after a complete type.
+      if ((terms & BARE_TYPE_STRIPPER__T_BRACE) && ch == '{' && seen_token && !last_was_op) return i;
     }
 
     if (ch == '(' || ch == '[' || ch == '{') {
@@ -719,6 +731,11 @@ bare_type_stripper__scan_type(const utf8_t *s, size_t n, size_t i, uint32_t term
 // nested blocks (function bodies, class methods, etc.).
 static inline int
 bare_type_stripper__walk(bare_type_stripper_t *ctx, size_t *result, uint8_t stop_at, bool body_is_stmt, bool stop_at_asi, uint32_t depth);
+
+// Forward declaration of the function processor - used by the export
+// processor to delegate 'export [default] function ...' statements.
+static inline int
+bare_type_stripper__process_function(bare_type_stripper_t *ctx, size_t *result, size_t stmt_start, uint32_t depth);
 
 // Walk a template literal, recursively stripping type syntax inside each
 // '${...}' expression. Assumes s[*result] == '`'. Leaves the cursor after
@@ -1001,6 +1018,12 @@ bare_type_stripper__process_class_body(bare_type_stripper_t *ctx, size_t *result
       continue;
     }
 
+    // Remember where this member starts and how many ranges were emitted
+    // before it. A member that turns out to be a bodyless overload or
+    // abstract signature is rolled back to this point and erased whole.
+    size_t member_start = i;
+    uint32_t member_mark = ctx->len;
+
     // 'static' is a real JS keyword that prefixes a class member, or starts
     // a static initialization block. Consume it when followed by another
     // identifier (or '['/'*') and remember that the line now has a syntactic
@@ -1110,7 +1133,19 @@ bare_type_stripper__process_class_body(bare_type_stripper_t *ctx, size_t *result
         continue;
       }
 
-      // Otherwise it's a computed member name; fall through.
+      // Otherwise it's a computed member name - rewind and let the member
+      // name parsing below consume it.
+      i = bs;
+    }
+
+    // 'get' / 'set' accessor prefix. Keep it, but consume it here rather
+    // than letting it lex as the member name, so that the member's real
+    // name and signature are processed in this same iteration.
+    if (bare_type_stripper__at_kw(s, n, i, "get", 3) || bare_type_stripper__at_kw(s, n, i, "set", 3)) {
+      size_t peek = bare_type_stripper__skip_trivia(s, n, i + 3);
+      if (peek < n && (ids(s[peek]) || s[peek] == '[' || s[peek] == '#' || s[peek] == '\'' || s[peek] == '"' || (s[peek] >= '0' && s[peek] <= '9'))) {
+        i = peek;
+      }
     }
 
     // Member name.
@@ -1124,6 +1159,9 @@ bare_type_stripper__process_class_body(bare_type_stripper_t *ctx, size_t *result
       while (i < n && id(u(0))) i++;
     } else if (u(0) == '\'' || u(0) == '"') {
       i = bare_type_stripper__skip_string(s, n, i);
+    } else if (u(0) == '[') {
+      // Computed member name.
+      i = bare_type_stripper__scan_balanced(s, n, i, '[', ']');
     } else if (u(0) >= '0' && u(0) <= '9') {
       while (i < n && (id(u(0)) || u(0) == '.')) i++;
     } else {
@@ -1198,9 +1236,21 @@ bare_type_stripper__process_class_body(bare_type_stripper_t *ctx, size_t *result
         i = bare_type_stripper__skip_trivia(s, n, i);
       }
 
-      // Method body (or just ';' for overload).
+      // Method body. Without one this is an overload or abstract method
+      // signature, which has no runtime semantics: Drop the ranges emitted
+      // for its pieces and erase the whole member as one range instead -
+      // leaving a bodyless 'f()' behind would produce invalid runtime JS.
+      // The injected ';' keeps ASI from folding a preceding field
+      // initializer into whatever follows the erased member.
       if (i < n && u(0) == '{') {
         err = bare_type_stripper__walk(ctx, &i, '}', true, false, depth + 1);
+        if (err < 0) return err;
+      } else {
+        if (i < n && u(0) == ';') i++;
+
+        ctx->len = member_mark;
+
+        err = bare_type_stripper__add_range_flags(ctx, member_start, i, bare_type_stripper_semi);
         if (err < 0) return err;
       }
 
@@ -1235,6 +1285,170 @@ bare_type_stripper__process_class_body(bare_type_stripper_t *ctx, size_t *result
 
       if (i < n && u(0) == ';') i++;
     }
+  }
+
+  *result = i;
+  return 0;
+}
+
+// True when the property starting at i parses as a method head - i.e.
+// '[async] [*] [get|set] KEY [<...>]' directly followed by '(' - meaning
+// the property is a shorthand method whose signature needs type stripping.
+// Pure lookahead: Consumes nothing and emits no ranges.
+static inline bool
+bare_type_stripper__at_method_head(const utf8_t *s, size_t n, size_t i) {
+  // 'async' prefix.
+  if (bare_type_stripper__at_kw(s, n, i, "async", 5)) {
+    size_t p = bare_type_stripper__skip_trivia(s, n, i + 5);
+    if (p < n && (ids(s[p]) || s[p] == '*' || s[p] == '[' || s[p] == '\'' || s[p] == '"' || (s[p] >= '0' && s[p] <= '9'))) i = p;
+  }
+
+  // Generator marker.
+  if (i < n && s[i] == '*') i = bare_type_stripper__skip_trivia(s, n, i + 1);
+
+  // 'get' / 'set' accessor prefix.
+  if (bare_type_stripper__at_kw(s, n, i, "get", 3) || bare_type_stripper__at_kw(s, n, i, "set", 3)) {
+    size_t p = bare_type_stripper__skip_trivia(s, n, i + 3);
+    if (p < n && (ids(s[p]) || s[p] == '[' || s[p] == '\'' || s[p] == '"' || (s[p] >= '0' && s[p] <= '9'))) i = p;
+  }
+
+  // Key.
+  if (i < n && ids(s[i])) {
+    while (i < n && id(s[i])) i++;
+  } else if (i < n && (s[i] == '\'' || s[i] == '"')) {
+    i = bare_type_stripper__skip_string(s, n, i);
+  } else if (i < n && s[i] == '[') {
+    i = bare_type_stripper__scan_balanced(s, n, i, '[', ']');
+  } else if (i < n && s[i] >= '0' && s[i] <= '9') {
+    while (i < n && (id(s[i]) || s[i] == '.')) i++;
+  } else {
+    return false;
+  }
+
+  i = bare_type_stripper__skip_trivia(s, n, i);
+
+  // Method generics '<T>'.
+  if (i < n && s[i] == '<') {
+    size_t ge = bare_type_stripper__scan_generic(s, n, i);
+    if (ge <= i + 1) return false;
+    i = bare_type_stripper__skip_trivia(s, n, ge);
+  }
+
+  return i < n && s[i] == '(';
+}
+
+// Process the body of an object literal. Expects s[i] == '{'. Walks until
+// the matching '}'. Properties are walked as plain expression code, except
+// shorthand methods, whose signatures (generics, parameter annotations,
+// return types) are stripped like class methods.
+static inline int
+bare_type_stripper__process_object_literal(bare_type_stripper_t *ctx, size_t *result, uint32_t depth) {
+  const utf8_t *s = ctx->s;
+  size_t n = ctx->n;
+
+  int err;
+  size_t i = *result;
+
+  if (u(0) != '{') return 0;
+  i++;
+
+  while (i < n) {
+    i = bare_type_stripper__skip_trivia(s, n, i);
+    if (i >= n) break;
+
+    if (u(0) == '}') {
+      i++;
+      break;
+    }
+    if (u(0) == ',') {
+      i++;
+      continue;
+    }
+    if (u(0) == ')') {
+      // Unmatched ')' - skip it so the loop can't wedge on malformed input.
+      i++;
+      continue;
+    }
+
+    if (bare_type_stripper__at_method_head(s, n, i)) {
+      // 'async' prefix.
+      if (bare_type_stripper__at_kw(s, n, i, "async", 5)) {
+        size_t peek = bare_type_stripper__skip_trivia(s, n, i + 5);
+        if (peek < n && (ids(s[peek]) || s[peek] == '*' || s[peek] == '[' || s[peek] == '\'' || s[peek] == '"' || (s[peek] >= '0' && s[peek] <= '9'))) {
+          i = peek;
+        }
+      }
+
+      // Generator marker.
+      if (u(0) == '*') {
+        i = bare_type_stripper__skip_trivia(s, n, i + 1);
+      }
+
+      // 'get' / 'set' accessor prefix.
+      if (bare_type_stripper__at_kw(s, n, i, "get", 3) || bare_type_stripper__at_kw(s, n, i, "set", 3)) {
+        size_t peek = bare_type_stripper__skip_trivia(s, n, i + 3);
+        if (peek < n && (ids(s[peek]) || s[peek] == '[' || s[peek] == '\'' || s[peek] == '"' || (s[peek] >= '0' && s[peek] <= '9'))) {
+          i = peek;
+        }
+      }
+
+      // Key.
+      if (i < n && ids(u(0))) {
+        while (i < n && id(u(0))) i++;
+      } else if (i < n && (u(0) == '\'' || u(0) == '"')) {
+        i = bare_type_stripper__skip_string(s, n, i);
+      } else if (i < n && u(0) == '[') {
+        i = bare_type_stripper__scan_balanced(s, n, i, '[', ']');
+      } else if (i < n && u(0) >= '0' && u(0) <= '9') {
+        while (i < n && (id(u(0)) || u(0) == '.')) i++;
+      }
+
+      i = bare_type_stripper__skip_trivia(s, n, i);
+
+      // Method generics '<T>'.
+      err = bare_type_stripper__strip_generic(ctx, &i);
+      if (err < 0) return err;
+
+      i = bare_type_stripper__skip_trivia(s, n, i);
+
+      // Parameter list.
+      if (i < n && u(0) == '(') {
+        err = bare_type_stripper__process_params(ctx, &i, depth);
+        if (err < 0) return err;
+      }
+
+      i = bare_type_stripper__skip_trivia(s, n, i);
+
+      // Return type annotation.
+      if (i < n && u(0) == ':') {
+        size_t ts = i;
+        i++;
+        i = bare_type_stripper__scan_type(
+          s,
+          n,
+          i,
+          BARE_TYPE_STRIPPER__T_BRACE | BARE_TYPE_STRIPPER__T_SEMI | BARE_TYPE_STRIPPER__T_NL
+        );
+
+        err = bare_type_stripper__add_range(ctx, ts, i);
+        if (err < 0) return err;
+
+        i = bare_type_stripper__skip_trivia(s, n, i);
+      }
+
+      // Method body.
+      if (i < n && u(0) == '{') {
+        err = bare_type_stripper__walk(ctx, &i, '}', true, false, depth + 1);
+        if (err < 0) return err;
+      }
+
+      continue;
+    }
+
+    // Anything else - spread, shorthand, or 'key: value' - is plain
+    // expression code up to the next depth-0 ',' or the closing '}'.
+    err = bare_type_stripper__walk(ctx, &i, ',', false, false, depth + 1);
+    if (err < 0) return err;
   }
 
   *result = i;
@@ -1594,7 +1808,7 @@ bare_type_stripper__process_import(bare_type_stripper_t *ctx, size_t *result) {
 
 // Process 'export' at statement position.
 static inline int
-bare_type_stripper__process_export(bare_type_stripper_t *ctx, size_t *result) {
+bare_type_stripper__process_export(bare_type_stripper_t *ctx, size_t *result, uint32_t depth) {
   const utf8_t *s = ctx->s;
   size_t n = ctx->n;
 
@@ -1692,6 +1906,23 @@ bare_type_stripper__process_export(bare_type_stripper_t *ctx, size_t *result) {
     return 0;
   }
 
+  // 'export [default] function ...' - delegate, threading through the
+  // statement start so a bodyless overload signature erases the 'export'
+  // prefix too instead of leaving a dangling 'export ;' behind.
+  size_t p = i;
+
+  if (bare_type_stripper__at_kw(s, n, p, "default", 7)) {
+    p = bare_type_stripper__skip_trivia(s, n, p + 7);
+  }
+
+  if (bare_type_stripper__at_kw(s, n, p, "function", 8)) {
+    err = bare_type_stripper__process_function(ctx, &p, start, depth);
+    if (err < 0) return err;
+
+    *result = p;
+    return 0;
+  }
+
   // 'export { ... }' - erase type-only specifiers entirely, including the
   // comma that separates them from value specifiers.
   if (u(0) == '{') {
@@ -1783,19 +2014,30 @@ bare_type_stripper__process_var_decl(bare_type_stripper_t *ctx, size_t *result, 
   return 0;
 }
 
-// Process 'function ...' or arrow function whose params we're entering.
-// On entry, i points at 'function'.
+// Process 'function ...'. On entry, *result points at 'function' and
+// stmt_start at the start of the enclosing statement - usually the same
+// position, but earlier when the declaration is prefixed by
+// 'export [default]'. A bodyless signature (an overload) is erased whole,
+// starting from stmt_start so no dangling 'export' survives.
 static inline int
-bare_type_stripper__process_function(bare_type_stripper_t *ctx, size_t *result, uint32_t depth) {
+bare_type_stripper__process_function(bare_type_stripper_t *ctx, size_t *result, size_t stmt_start, uint32_t depth) {
   const utf8_t *s = ctx->s;
   size_t n = ctx->n;
 
   int err;
-  size_t start = *result;
+  uint32_t mark = ctx->len;
   size_t i = *result;
   i += 8;
 
   i = bare_type_stripper__skip_trivia(s, n, i);
+
+  // 'function' used as a property key ('{ function: 1 }') rather than a
+  // declaration or expression - leave it alone. A real function never has
+  // ':' directly after the keyword.
+  if (i < n && u(0) == ':') {
+    *result += 8;
+    return 0;
+  }
   if (i < n && u(0) == '*') {
     i++;
     i = bare_type_stripper__skip_trivia(s, n, i);
@@ -1836,15 +2078,17 @@ bare_type_stripper__process_function(bare_type_stripper_t *ctx, size_t *result, 
     if (err < 0) return err;
   } else {
     // Overload signature: A function declaration without a body, terminated
-    // by ';'. Strip the whole signature line - leaving 'function f();' would
-    // produce invalid runtime JS.
+    // by ';' or a line break. Drop the ranges emitted for its pieces and
+    // erase the whole signature as one range instead - leaving a bodyless
+    // 'function f()' behind would produce invalid runtime JS. The injected
+    // ';' keeps ASI from folding the signature line into its neighbors.
     size_t peek = bare_type_stripper__skip_trivia(s, n, i);
-    if (peek < n && s[peek] == ';') {
-      i = peek + 1;
+    if (peek < n && s[peek] == ';') i = peek + 1;
 
-      err = bare_type_stripper__add_range_flags(ctx, start, i, bare_type_stripper_semi);
-      if (err < 0) return err;
-    }
+    ctx->len = mark;
+
+    err = bare_type_stripper__add_range_flags(ctx, stmt_start, i, bare_type_stripper_semi);
+    if (err < 0) return err;
   }
 
   *result = i;
@@ -2138,7 +2382,7 @@ bare_type_stripper__walk(bare_type_stripper_t *ctx, size_t *result, uint8_t stop
         *result = i;
         return 0;
       }
-      if (stop_at == ',' && (ch == ',' || ch == ')')) {
+      if (stop_at == ',' && (ch == ',' || ch == ')' || ch == '}')) {
         *result = i;
         return 0;
       }
@@ -2325,7 +2569,7 @@ bare_type_stripper__walk(bare_type_stripper_t *ctx, size_t *result, uint8_t stop
       if (kl == 6 && memcmp(&s[ks], "export", 6) == 0 && at_stmt_start) {
         size_t save = ks;
 
-        err = bare_type_stripper__process_export(ctx, &save);
+        err = bare_type_stripper__process_export(ctx, &save, depth);
         if (err < 0) return err;
 
         i = save;
@@ -2337,7 +2581,7 @@ bare_type_stripper__walk(bare_type_stripper_t *ctx, size_t *result, uint8_t stop
       if (kl == 8 && memcmp(&s[ks], "function", 8) == 0) {
         size_t save = ks;
 
-        err = bare_type_stripper__process_function(ctx, &save, depth);
+        err = bare_type_stripper__process_function(ctx, &save, ks, depth);
         if (err < 0) return err;
 
         i = save;
@@ -2604,7 +2848,13 @@ bare_type_stripper__walk(bare_type_stripper_t *ctx, size_t *result, uint8_t stop
 
       size_t save = i;
 
-      err = bare_type_stripper__walk(ctx, &save, '}', is_block_ctx, false, depth + 1);
+      if (is_block_ctx) {
+        err = bare_type_stripper__walk(ctx, &save, '}', true, false, depth + 1);
+      } else {
+        // Object literal - structured processing so shorthand method
+        // signatures get their annotations stripped.
+        err = bare_type_stripper__process_object_literal(ctx, &save, depth + 1);
+      }
       if (err < 0) return err;
 
       i = save;
