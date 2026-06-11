@@ -68,8 +68,8 @@ test('export type alias with multi-line union', (t) => {
 test('export type alias with object body', (t) => {
   eq(
     t,
-    'export type Deps = {\n  readonly openUrl?: (url: string) => Promise<void>;\n  readonly timeoutMs?: number;\n}\nconst x = 1',
-    ';                   \n                                                    \n                              \n \nconst x = 1'
+    'export type T = {\n  readonly a?: (x: string) => Promise<void>;\n  readonly b?: number;\n}\nconst x = 1',
+    ';                \n                                            \n                      \n \nconst x = 1'
   )
 })
 
@@ -164,8 +164,8 @@ test('var annotation with union', (t) => {
 test('annotation with multiline generic object type', (t) => {
   eq(
     t,
-    'const SERIES: ReadonlyArray<{\n  readonly match: (name: string) => boolean;\n}> = []',
-    'const SERIES                 \n                                            \n   = []'
+    'const x: ReadonlyArray<{\n  readonly f: (x: string) => boolean;\n}> = []',
+    'const x                 \n                                     \n   = []'
   )
 })
 
@@ -380,8 +380,8 @@ test('as Type does not consume following comparison', (t) => {
 test('as with intersection object type', (t) => {
   eq(
     t,
-    'if ((existing as SdkModel & { name?: string }).name !== catalog.name) f()',
-    'if ((existing                                ).name !== catalog.name) f()'
+    'if ((x as A & { b?: string }).b !== y.b) f()',
+    'if ((x                      ).b !== y.b) f()'
   )
 })
 
