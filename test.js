@@ -441,6 +441,30 @@ test('as with intersection object type', (t) => {
   )
 })
 
+test('as with multi-line object type', (t) => {
+  eq(
+    t,
+    'const value = {} as {\n  a: number\n  b: string\n}',
+    'const value = {}     \n           \n           \n '
+  )
+})
+
+test('chained as with multi-line object type', (t) => {
+  eq(
+    t,
+    'const value = {} as unknown as {\n  a: number\n  b: string\n}',
+    'const value = {}                \n           \n           \n '
+  )
+})
+
+test('chained as ending in object type', (t) => {
+  eq(
+    t,
+    'const v = x as unknown as { a: number }\nconst z = 1',
+    'const v = x                            \nconst z = 1'
+  )
+})
+
 test('postfix non-null', (t) => {
   eq(t, 'const x = obj!.foo', 'const x = obj .foo')
 })
