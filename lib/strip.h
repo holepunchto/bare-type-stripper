@@ -750,9 +750,13 @@ bare_type_stripper__scan_type(const utf8_t *s, size_t n, size_t i, uint32_t term
 
       // Type-level keywords that expect another type to follow. Marking these
       // as 'op' keeps multi-line conditional types intact (e.g. 'T extends\n
-      // U ? A : B').
+      // U ? A : B'). 'as' covers both a chained cast ('x as unknown as {...}')
+      // and a mapped-type key remap ('{ [K in T as U]: V }'), where the type
+      // that follows may be an object literal whose '{' must be scanned as an
+      // operand rather than mistaken for the caller's terminating brace.
       last_was_op =
-        (kl == 2 && memcmp(&s[ks], "is", 2) == 0) ||
+        (kl == 2 && (memcmp(&s[ks], "is", 2) == 0 ||
+                     memcmp(&s[ks], "as", 2) == 0)) ||
         (kl == 5 && (memcmp(&s[ks], "infer", 5) == 0 ||
                      memcmp(&s[ks], "keyof", 5) == 0)) ||
         (kl == 6 && memcmp(&s[ks], "typeof", 6) == 0) ||
