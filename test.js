@@ -97,11 +97,11 @@ test('export { bar, type Foo }', (t) => {
   eq(t, 'export { bar, type Foo }', 'export { bar           }')
 })
 
-test('dynamic import left alone', (t) => {
+test('dynamic import', (t) => {
   eq(t, "const p = import('./foo.js')", "const p = import('./foo.js')")
 })
 
-test('import.meta left alone', (t) => {
+test('import.meta', (t) => {
   eq(t, 'const u = import.meta.url', 'const u = import.meta.url')
 })
 
@@ -269,7 +269,7 @@ test('parameter decorator strips generic args', (t) => {
   eq(t, 'function f(@dec<T> y) {}', 'function f(@dec    y) {}')
 })
 
-test('function overload signature stripped', (t) => {
+test('function overload signature', (t) => {
   eq(
     t,
     'function f(): number;\nfunction f(): any { return 1 }',
@@ -277,7 +277,7 @@ test('function overload signature stripped', (t) => {
   )
 })
 
-test('function overload signatures without semicolons stripped', (t) => {
+test('function overload signatures without semicolons', (t) => {
   eq(
     t,
     'function f(x: string): void\nfunction f(x: number): void\nfunction f(x) { return x }',
@@ -285,7 +285,7 @@ test('function overload signatures without semicolons stripped', (t) => {
   )
 })
 
-test('export function overload signatures stripped', (t) => {
+test('export function overload signatures', (t) => {
   eq(
     t,
     'export function f(x: string): void\nexport function f(x: number): void\nexport function f(x) { return x }',
@@ -293,7 +293,7 @@ test('export function overload signatures stripped', (t) => {
   )
 })
 
-test('export default function overload signature stripped', (t) => {
+test('export default function overload signature', (t) => {
   eq(
     t,
     'export default function f(x: string): void;\nexport default function f(x) { return x }',
@@ -306,6 +306,38 @@ test('export function overload with async implementation', (t) => {
     t,
     'export function f(x: string): Promise<string[]>;\nexport async function f(x: string): Promise<string[]> {\n  return []\n}',
     ';                                               \nexport async function f(x        )                    {\n  return []\n}'
+  )
+})
+
+test('async function overload signature', (t) => {
+  eq(
+    t,
+    'async function f(x: string): Promise<void>;\nasync function f(x: any): Promise<void> { return }',
+    ';                                          \nasync function f(x     )                { return }'
+  )
+})
+
+test('generator function overload signature', (t) => {
+  eq(
+    t,
+    'function* f(x: string): Iterator<number>;\nfunction* f(x: any): Iterator<number> { yield 1 }',
+    ';                                        \nfunction* f(x     )                   { yield 1 }'
+  )
+})
+
+test('async generator function overload signature', (t) => {
+  eq(
+    t,
+    'async function* f(x: string): AsyncIterator<number>;\nasync function* f(x: any): AsyncIterator<number> { yield 1 }',
+    ';                                                   \nasync function* f(x     )                        { yield 1 }'
+  )
+})
+
+test('export async function overload signature', (t) => {
+  eq(
+    t,
+    'export async function f(x: string): Promise<void>;\nexport async function f(x: any): Promise<void> { return }',
+    ';                                                 \nexport async function f(x     )                { return }'
   )
 })
 
@@ -497,11 +529,11 @@ test('setter with param annotation', (t) => {
   eq(t, 'class C { set g(v: any) {} }', 'class C { set g(v     ) {} }')
 })
 
-test('accessor modifier left alone', (t) => {
+test('accessor modifier', (t) => {
   eq(t, 'class C { accessor x }', 'class C { accessor x }')
 })
 
-test('static accessor left alone', (t) => {
+test('static accessor', (t) => {
   eq(t, 'class C { static accessor x }', 'class C { static accessor x }')
 })
 
@@ -516,11 +548,11 @@ test('readonly parameter property throws', (t) => {
   t.exception.all(() => strip('class A { constructor(readonly x: number) {} }'), SyntaxError)
 })
 
-test('parameter named like a modifier left alone', (t) => {
+test('parameter named like a modifier', (t) => {
   eq(t, 'function f(readonly, override) {}', 'function f(readonly, override) {}')
 })
 
-test('function as property key left alone', (t) => {
+test('function as property key', (t) => {
   eq(t, 'const o = { function: 1 }', 'const o = { function: 1 }')
 })
 
@@ -532,7 +564,7 @@ test('class with method overloads + impl', (t) => {
   )
 })
 
-test('class method overloads with semicolons stripped', (t) => {
+test('class method overloads with semicolons', (t) => {
   eq(
     t,
     'class C {\n  foo(x: number): number;\n  foo(x: string): string;\n  foo(x: any): any { return x }\n}',
@@ -540,7 +572,7 @@ test('class method overloads with semicolons stripped', (t) => {
   )
 })
 
-test('constructor overloads stripped', (t) => {
+test('constructor overloads', (t) => {
   eq(
     t,
     'class C {\n  constructor(x: string);\n  constructor(x: number);\n  constructor(x) { this.x = x }\n}',
@@ -548,7 +580,7 @@ test('constructor overloads stripped', (t) => {
   )
 })
 
-test('class method overload with modifier stripped', (t) => {
+test('class method overload with modifier', (t) => {
   eq(
     t,
     'class C {\n  public foo(x: number): number;\n  public foo(x: any): any { return x }\n}',
@@ -556,7 +588,7 @@ test('class method overload with modifier stripped', (t) => {
   )
 })
 
-test('static method overload stripped', (t) => {
+test('static method overload', (t) => {
   eq(
     t,
     'class C {\n  static foo(x: number): number;\n  static foo(x: any): any { return x }\n}',
@@ -564,11 +596,43 @@ test('static method overload stripped', (t) => {
   )
 })
 
+test('async method overload', (t) => {
+  eq(
+    t,
+    'class C {\n  m(x: string): Promise<void>;\n  async m(x: any): Promise<void> { return }\n}',
+    'class C {\n  ;                           \n  async m(x     )                { return }\n}'
+  )
+})
+
+test('async method overload signature', (t) => {
+  eq(
+    t,
+    'class C {\n  async m(x: string): Promise<void>;\n  async m(x: any): Promise<void> { return }\n}',
+    'class C {\n  ;                                 \n  async m(x     )                { return }\n}'
+  )
+})
+
+test('generator method overload', (t) => {
+  eq(
+    t,
+    'class C {\n  *m(x: string): Iterator<number>;\n  *m(x: any): Iterator<number> { yield 1 }\n}',
+    'class C {\n  ;                               \n  *m(x     )                   { yield 1 }\n}'
+  )
+})
+
+test('async generator method overload', (t) => {
+  eq(
+    t,
+    'class C {\n  async *m(x: string): AsyncIterator<number>;\n  async *m(x: any): AsyncIterator<number> { yield 1 }\n}',
+    'class C {\n  ;                                          \n  async *m(x     )                        { yield 1 }\n}'
+  )
+})
+
 test('abstract class strips abstract keyword', (t) => {
   eq(t, 'abstract class A { abstract foo(): void }', '         class A { ;                    }')
 })
 
-test('abstract accessor signature stripped', (t) => {
+test('abstract accessor signature', (t) => {
   eq(
     t,
     'abstract class A { abstract get x(): number }',
@@ -596,7 +660,39 @@ test('computed accessor strips return annotation', (t) => {
   )
 })
 
-test('static initialization block left alone', (t) => {
+test('class method named async', (t) => {
+  eq(t, 'class C { async(x: number): void {} }', 'class C { async(x        )       {} }')
+})
+
+test('class private async method annotations', (t) => {
+  eq(
+    t,
+    'class C { async #m(x: number): Promise<void> {} }',
+    'class C { async #m(x        )                {} }'
+  )
+})
+
+test('class private accessor annotations', (t) => {
+  eq(t, 'class C { get #x(): number { return 1 } }', 'class C { get #x()         { return 1 } }')
+})
+
+test('static async generator method annotations', (t) => {
+  eq(
+    t,
+    'class C { static async *g(x: number): AsyncIterator<void> {} }',
+    'class C { static async *g(x        )                      {} }'
+  )
+})
+
+test('modifier before generator method', (t) => {
+  eq(
+    t,
+    'class C { public *g(x: number): Iterator<void> {} }',
+    'class C { ;      *g(x        )                 {} }'
+  )
+})
+
+test('static initialization block', (t) => {
   eq(t, 'class C { static { f("x") } }', 'class C { static { f("x") } }')
 })
 
@@ -676,8 +772,20 @@ test('object method in nested object literal', (t) => {
   )
 })
 
-test('properties named like method prefixes left alone', (t) => {
+test('properties named like method prefixes', (t) => {
   eq(t, 'const o = { async: 1, get: 2, set: 3 }', 'const o = { async: 1, get: 2, set: 3 }')
+})
+
+test('object method named async', (t) => {
+  eq(t, 'const o = { async(x: number): void {} }', 'const o = { async(x        )       {} }')
+})
+
+test('async generator object method annotations', (t) => {
+  eq(
+    t,
+    'const o = { async *m(x: number): AsyncIterator<void> {} }',
+    'const o = { async *m(x        )                      {} }'
+  )
 })
 
 test('arrow function param annotation', (t) => {
@@ -696,15 +804,15 @@ test('arrow function in annotation (function type)', (t) => {
   )
 })
 
-test('arrow generic <T,> stripped', (t) => {
+test('arrow generic <T,>', (t) => {
   eq(t, 'const f = <T,>(x: T) => x', 'const f =     (x   ) => x')
 })
 
-test('arrow generic <T> stripped', (t) => {
+test('arrow generic <T>', (t) => {
   eq(t, 'const f = <T>(x: T) => x', 'const f =    (x   ) => x')
 })
 
-test('arrow generic with extends stripped', (t) => {
+test('arrow generic with extends', (t) => {
   eq(t, 'const f = <T extends unknown>(x: T) => x', 'const f =                    (x   ) => x')
 })
 
@@ -849,11 +957,11 @@ test('module declaration throws', (t) => {
   t.exception.all(() => strip('module N.M { const x = 1 }'), SyntaxError)
 })
 
-test('module.exports left alone', (t) => {
+test('module.exports', (t) => {
   eq(t, 'module.exports = 1', 'module.exports = 1')
 })
 
-test('namespace identifier left alone', (t) => {
+test('namespace identifier', (t) => {
   eq(t, 'const namespace = 1\nnamespace.foo()', 'const namespace = 1\nnamespace.foo()')
 })
 
@@ -877,19 +985,19 @@ test('template literal contents untouched', (t) => {
   eq(t, 'const x = `value is ${y} as Foo`', 'const x = `value is ${y} as Foo`')
 })
 
-test('template literal, as inside ${...} is stripped', (t) => {
+test('template literal, as inside ${...}', (t) => {
   eq(t, 'const x = `${y as Foo}`', 'const x = `${y       }`')
 })
 
-test('template literal, satisfies inside ${...} is stripped', (t) => {
+test('template literal, satisfies inside ${...}', (t) => {
   eq(t, 'const x = `${a satisfies T}`', 'const x = `${a            }`')
 })
 
-test('template literal, non-null inside ${...} is stripped', (t) => {
+test('template literal, non-null inside ${...}', (t) => {
   eq(t, 'const x = `${obj!.foo}`', 'const x = `${obj .foo}`')
 })
 
-test('template literal, nested template ts inside ${...} is stripped', (t) => {
+test('template literal, nested template ts inside ${...}', (t) => {
   eq(
     t,
     'const x = `outer ${a + `inner ${b as Bar}`}`',
@@ -937,7 +1045,7 @@ test('declare global', (t) => {
   eq(t, 'declare global {}', ';                ')
 })
 
-test('declare function return type stripped', (t) => {
+test('declare function return type', (t) => {
   eq(t, 'declare function f(): void', ';                         ')
 })
 

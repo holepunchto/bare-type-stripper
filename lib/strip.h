@@ -176,6 +176,51 @@ bare_type_stripper__scan_type(const utf8_t *s, size_t n, size_t i, uint32_t term
 static inline size_t
 bare_type_stripper__scan_declare(const utf8_t *s, size_t n, size_t i);
 
+// True when a class/object member key can begin at s[p]: an identifier, a
+// computed '[...]' name, a string or numeric literal, or - only in class
+// bodies ('allow_private') - a '#' private name. Used to tell a keyword
+// prefix ('async', 'get', 'set') or modifier apart from a property that
+// merely happens to be named that word. Note a generator '*' is not a key
+// start; callers that accept one ('async *m') test for it separately.
+static inline bool
+bare_type_stripper__starts_member_key(const utf8_t *s, size_t n, size_t p, bool allow_private) {
+  if (p >= n) return false;
+  return ids(s[p]) || s[p] == '[' || s[p] == '\'' || s[p] == '"' ||
+         (s[p] >= '0' && s[p] <= '9') || (allow_private && s[p] == '#');
+}
+
+// Consume the pure-JS method-head prefix '[async] [*] [get|set]' starting at
+// i, advancing past each keyword or marker that is followed by a further
+// prefix or a member key. Emits no ranges - these tokens survive stripping.
+// Returns the index at the member key (or i unchanged when none applies).
+// 'allow_private' lets a '#' private name count as a key start, which is
+// valid in class bodies but not object literals.
+static inline size_t
+bare_type_stripper__skip_method_head_prefix(const utf8_t *s, size_t n, size_t i, bool allow_private) {
+  // 'async' prefix - only when followed by a generator marker or a key, so a
+  // property named 'async' ('async() {}', 'async: 1') lexes as its own key.
+  if (bare_type_stripper__at_kw(s, n, i, "async", 5)) {
+    size_t peek = bare_type_stripper__skip_trivia(s, n, i + 5);
+    if (peek < n && (s[peek] == '*' || bare_type_stripper__starts_member_key(s, n, peek, allow_private))) {
+      i = peek;
+    }
+  }
+
+  // Generator marker '*'.
+  if (i < n && s[i] == '*') i = bare_type_stripper__skip_trivia(s, n, i + 1);
+
+  // 'get' / 'set' accessor prefix - only when followed by a key, so a method
+  // or property named 'get'/'set' lexes as its own key.
+  if (bare_type_stripper__at_kw(s, n, i, "get", 3) || bare_type_stripper__at_kw(s, n, i, "set", 3)) {
+    size_t peek = bare_type_stripper__skip_trivia(s, n, i + 3);
+    if (bare_type_stripper__starts_member_key(s, n, peek, allow_private)) {
+      i = peek;
+    }
+  }
+
+  return i;
+}
+
 #define BARE_TYPE_STRIPPER__T_COMMA 0x01
 #define BARE_TYPE_STRIPPER__T_SEMI  0x02
 #define BARE_TYPE_STRIPPER__T_PAREN 0x04  // ')'
@@ -1080,10 +1125,9 @@ bare_type_stripper__process_class_body(bare_type_stripper_t *ctx, size_t *result
 
       size_t peek = bare_type_stripper__skip_trivia(s, n, ke);
 
-      // Erase modifier only if followed by another identifier (member name
-      // or another modifier), '#' (private name), '[' (computed name), '*'
-      // (generator), or a string or numeric member name.
-      if (peek < n && (ids(s[peek]) || s[peek] == '#' || s[peek] == '[' || s[peek] == '*' || s[peek] == '\'' || s[peek] == '"' || (s[peek] >= '0' && s[peek] <= '9'))) {
+      // Erase modifier only if followed by another modifier or member name -
+      // any member-key start, or a generator '*' introducing a method.
+      if (bare_type_stripper__starts_member_key(s, n, peek, true) || (peek < n && s[peek] == '*')) {
         uint32_t flags = member_strip_seen ? 0 : bare_type_stripper_semi;
 
         err = bare_type_stripper__add_range_flags(ctx, ks, peek, flags);
@@ -1141,21 +1185,16 @@ bare_type_stripper__process_class_body(bare_type_stripper_t *ctx, size_t *result
       i = bs;
     }
 
-    // 'get' / 'set' accessor prefix. Keep it, but consume it here rather
-    // than letting it lex as the member name, so that the member's real
-    // name and signature are processed in this same iteration.
-    if (bare_type_stripper__at_kw(s, n, i, "get", 3) || bare_type_stripper__at_kw(s, n, i, "set", 3)) {
-      size_t peek = bare_type_stripper__skip_trivia(s, n, i + 3);
-      if (peek < n && (ids(s[peek]) || s[peek] == '[' || s[peek] == '#' || s[peek] == '\'' || s[peek] == '"' || (s[peek] >= '0' && s[peek] <= '9'))) {
-        i = peek;
-      }
-    }
+    // Method-head prefix '[async] [*] [get|set]'. These tokens survive
+    // stripping, but consume them here rather than letting one lex as the
+    // member name, so the method's real name and signature are processed in
+    // this same iteration - and so a bodyless overload erases from the prefix
+    // onward instead of stranding it. When a bare 'async'/'get'/'set' is
+    // itself the member name ('async() {}', 'get = 1') the prefix scan leaves
+    // i untouched and it lexes as the name below.
+    i = bare_type_stripper__skip_method_head_prefix(s, n, i, true);
 
     // Member name.
-    if (u(0) == '*') {
-      i++;
-      i = bare_type_stripper__skip_trivia(s, n, i);
-    }
     if (u(0) == '#') i++; // Private name
 
     if (i < n && ids(u(0))) {
@@ -1300,20 +1339,9 @@ bare_type_stripper__process_class_body(bare_type_stripper_t *ctx, size_t *result
 // Pure lookahead: Consumes nothing and emits no ranges.
 static inline bool
 bare_type_stripper__at_method_head(const utf8_t *s, size_t n, size_t i) {
-  // 'async' prefix.
-  if (bare_type_stripper__at_kw(s, n, i, "async", 5)) {
-    size_t p = bare_type_stripper__skip_trivia(s, n, i + 5);
-    if (p < n && (ids(s[p]) || s[p] == '*' || s[p] == '[' || s[p] == '\'' || s[p] == '"' || (s[p] >= '0' && s[p] <= '9'))) i = p;
-  }
-
-  // Generator marker.
-  if (i < n && s[i] == '*') i = bare_type_stripper__skip_trivia(s, n, i + 1);
-
-  // 'get' / 'set' accessor prefix.
-  if (bare_type_stripper__at_kw(s, n, i, "get", 3) || bare_type_stripper__at_kw(s, n, i, "set", 3)) {
-    size_t p = bare_type_stripper__skip_trivia(s, n, i + 3);
-    if (p < n && (ids(s[p]) || s[p] == '[' || s[p] == '\'' || s[p] == '"' || (s[p] >= '0' && s[p] <= '9'))) i = p;
-  }
+  // Method-head prefix '[async] [*] [get|set]' - object literals have no
+  // private names, so '#' is not a key start here.
+  i = bare_type_stripper__skip_method_head_prefix(s, n, i, false);
 
   // Key.
   if (i < n && ids(s[i])) {
@@ -1374,26 +1402,9 @@ bare_type_stripper__process_object_literal(bare_type_stripper_t *ctx, size_t *re
     }
 
     if (bare_type_stripper__at_method_head(s, n, i)) {
-      // 'async' prefix.
-      if (bare_type_stripper__at_kw(s, n, i, "async", 5)) {
-        size_t peek = bare_type_stripper__skip_trivia(s, n, i + 5);
-        if (peek < n && (ids(s[peek]) || s[peek] == '*' || s[peek] == '[' || s[peek] == '\'' || s[peek] == '"' || (s[peek] >= '0' && s[peek] <= '9'))) {
-          i = peek;
-        }
-      }
-
-      // Generator marker.
-      if (u(0) == '*') {
-        i = bare_type_stripper__skip_trivia(s, n, i + 1);
-      }
-
-      // 'get' / 'set' accessor prefix.
-      if (bare_type_stripper__at_kw(s, n, i, "get", 3) || bare_type_stripper__at_kw(s, n, i, "set", 3)) {
-        size_t peek = bare_type_stripper__skip_trivia(s, n, i + 3);
-        if (peek < n && (ids(s[peek]) || s[peek] == '[' || s[peek] == '\'' || s[peek] == '"' || (s[peek] >= '0' && s[peek] <= '9'))) {
-          i = peek;
-        }
-      }
+      // Method-head prefix '[async] [*] [get|set]' - re-walked here to consume
+      // it now that the lookahead has confirmed a method.
+      i = bare_type_stripper__skip_method_head_prefix(s, n, i, false);
 
       // Key.
       if (i < n && ids(u(0))) {
@@ -1918,6 +1929,10 @@ bare_type_stripper__process_export(bare_type_stripper_t *ctx, size_t *result, ui
     p = bare_type_stripper__skip_trivia(s, n, p + 7);
   }
 
+  if (bare_type_stripper__at_kw(s, n, p, "async", 5)) {
+    p = bare_type_stripper__skip_trivia(s, n, p + 5);
+  }
+
   if (bare_type_stripper__at_kw(s, n, p, "function", 8)) {
     err = bare_type_stripper__process_function(ctx, &p, start, depth);
     if (err < 0) return err;
@@ -2333,6 +2348,12 @@ bare_type_stripper__walk(bare_type_stripper_t *ctx, size_t *result, uint8_t stop
   int prev = body_is_stmt ? bare_type_stripper__prev_none : bare_type_stripper__prev_op;
   bool prev_dot = false;
 
+  // Start offset of the most recent 'async' keyword. Valid only while
+  // 'prev == prev_async', i.e. when 'async' is the immediately preceding
+  // token. Used so a bodyless 'async function' overload erases from 'async'
+  // onward instead of leaving a dangling 'async ;' behind.
+  size_t async_start = 0;
+
   while (i < n) {
     uint8_t ch = u(0);
 
@@ -2584,7 +2605,11 @@ bare_type_stripper__walk(bare_type_stripper_t *ctx, size_t *result, uint8_t stop
       if (kl == 8 && memcmp(&s[ks], "function", 8) == 0) {
         size_t save = ks;
 
-        err = bare_type_stripper__process_function(ctx, &save, ks, depth);
+        // A preceding 'async' is part of the declaration - erase a bodyless
+        // overload from there so the 'async' keyword doesn't survive.
+        size_t fn_start = prev == bare_type_stripper__prev_async ? async_start : ks;
+
+        err = bare_type_stripper__process_function(ctx, &save, fn_start, depth);
         if (err < 0) return err;
 
         i = save;
@@ -2663,6 +2688,7 @@ bare_type_stripper__walk(bare_type_stripper_t *ctx, size_t *result, uint8_t stop
       // Remaining keywords only affect token classification - see the
       // keyword table above the walker. Plain identifiers end an expression.
       prev = bare_type_stripper__classify_kw(s, ks, kl);
+      if (prev == bare_type_stripper__prev_async) async_start = ks;
       continue;
     }
 
