@@ -125,6 +125,38 @@ test('tuple type with labels', (t) => {
   )
 })
 
+test('variance modifiers on type parameters', (t) => {
+  eq(
+    t,
+    'type P<in T, out U> = (x: T) => U\nconst x = 1',
+    ';                                \nconst x = 1'
+  )
+})
+
+test('mapped type', (t) => {
+  eq(
+    t,
+    'type M = { [K in keyof T]: T[K] }\nconst x = 1',
+    ';                                \nconst x = 1'
+  )
+})
+
+test('conditional type with infer', (t) => {
+  eq(
+    t,
+    'type C = T extends infer U ? U : never\nconst x = 1',
+    ';                                     \nconst x = 1'
+  )
+})
+
+test('keyof and typeof type operators', (t) => {
+  eq(t, 'type K = keyof typeof x\nconst x = 1', ';                      \nconst x = 1')
+})
+
+test('template literal type', (t) => {
+  eq(t, 'type T = `a${string}b`\nconst x = 1', ';                     \nconst x = 1')
+})
+
 test('interface', (t) => {
   eq(
     t,
@@ -159,6 +191,18 @@ test('let annotation', (t) => {
 
 test('var annotation with union', (t) => {
   eq(t, 'var x: number | string = 1', 'var x                  = 1')
+})
+
+test('qualified type name', (t) => {
+  eq(t, 'const x: A.B.C = y', 'const x        = y')
+})
+
+test('constructor type in annotation', (t) => {
+  eq(t, 'const f: new () => T = null as any', 'const f              = null       ')
+})
+
+test('import type query in annotation', (t) => {
+  eq(t, 'let x: import("m").T = y', 'let x                = y')
 })
 
 test('annotation with multiline generic object type', (t) => {
@@ -425,6 +469,10 @@ test('chained satisfies', (t) => {
   eq(t, 'const x = a satisfies any satisfies number', 'const x = a                               ')
 })
 
+test('satisfies with generic type', (t) => {
+  eq(t, 'const x = foo satisfies Bar<T>', 'const x = foo                 ')
+})
+
 test('as between bitwise operators', (t) => {
   eq(t, 'const x = a & b as any & T', 'const x = a & b           ')
 })
@@ -529,6 +577,10 @@ test('override modifier', (t) => {
   eq(t, 'class C { override foo() {} }', 'class C { ;        foo() {} }')
 })
 
+test('public static readonly stacked modifiers', (t) => {
+  eq(t, 'class C { public static readonly x: T = 1 }', 'class C { ;      static ;        x    = 1 }')
+})
+
 test('declare class member', (t) => {
   eq(t, 'class C { declare x: number }', 'class C { ;                 }')
 })
@@ -559,6 +611,10 @@ test('accessor modifier', (t) => {
 
 test('static accessor', (t) => {
   eq(t, 'class C { static accessor x }', 'class C { static accessor x }')
+})
+
+test('accessor field with annotation', (t) => {
+  eq(t, 'class C { accessor x: number = 1 }', 'class C { accessor x         = 1 }')
 })
 
 test('constructor with parameter properties throws', (t) => {
@@ -662,6 +718,10 @@ test('abstract accessor signature', (t) => {
     'abstract class A { abstract get x(): number }',
     '         class A { ;                        }'
   )
+})
+
+test('abstract property', (t) => {
+  eq(t, 'abstract class A { abstract x: number }', '         class A { ;        x         }')
 })
 
 test('computed method strips annotations', (t) => {
@@ -898,6 +958,10 @@ test('generic call site', (t) => {
 
 test('generic call after method chain', (t) => {
   eq(t, 'const x = foo().bar<T>()', 'const x = foo().bar   ()')
+})
+
+test('generic type arguments on new', (t) => {
+  eq(t, 'const x = new Foo<T>()', 'const x = new Foo   ()')
 })
 
 test('generic call after subscript', (t) => {
