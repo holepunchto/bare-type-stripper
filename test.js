@@ -578,7 +578,11 @@ test('override modifier', (t) => {
 })
 
 test('public static readonly stacked modifiers', (t) => {
-  eq(t, 'class C { public static readonly x: T = 1 }', 'class C { ;      static ;        x    = 1 }')
+  eq(
+    t,
+    'class C { public static readonly x: T = 1 }',
+    'class C { ;      static ;        x    = 1 }'
+  )
 })
 
 test('declare class member', (t) => {
