@@ -19,6 +19,7 @@ strip(`
 ```
 
 <!-- bare-refgen:api start -->
+
 ## API
 
 ### Functions
@@ -31,11 +32,11 @@ Strip TypeScript-only syntax from `input` and return plain JavaScript as a `Buff
 
 **Parameters**
 
-| Parameter | Type | Default | Description |
-| --- | --- | --- | --- |
-| `input` | `string \| Buffer` | — | The TypeScript source to strip, as a string or a `Buffer`. |
-| `encoding?` | `BufferEncoding` | — | Encoding used to decode `input` when it is a string (default `'utf8'`); ignored when `input` is already a `Buffer`. |
-| `opts?` | `object` | — | An options object; currently unused. |
+| Parameter   | Type               | Default | Description                                                                                                         |
+| ----------- | ------------------ | ------- | ------------------------------------------------------------------------------------------------------------------- |
+| `input`     | `string \| Buffer` | —       | The TypeScript source to strip, as a string or a `Buffer`.                                                          |
+| `encoding?` | `BufferEncoding`   | —       | Encoding used to decode `input` when it is a string (default `'utf8'`); ignored when `input` is already a `Buffer`. |
+| `opts?`     | `object`           | —       | An options object; currently unused.                                                                                |
 
 **Throws**
 
