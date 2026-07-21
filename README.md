@@ -42,6 +42,7 @@ Strip TypeScript-only syntax from `input` and return plain JavaScript as a `Buff
 
 - `TypeError` — `input` is neither a string nor a buffer.
 - `SyntaxError` — the source contains non-erasable TypeScript syntax (`enum`/`const enum`, `namespace`/`module` with a body, parameter properties, or angle-bracket type assertions).
+
 <!-- bare-refgen:api end -->
 
 ## What gets stripped
