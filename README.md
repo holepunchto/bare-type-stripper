@@ -18,32 +18,9 @@ strip(`
 // '
 ```
 
-<!-- bare-refgen:api start -->
-
 ## API
 
-### Functions
-
-#### `strip(input: string | Buffer, encoding?: BufferEncoding, opts?: object): Buffer`
-
-[source](https://github.com/holepunchto/bare-type-stripper/blob/v0.1.4/index.d.ts#L3)
-
-Strip TypeScript-only syntax from `input` and return plain JavaScript as a `Buffer`. Stripped regions are replaced with spaces (newlines preserved) so the output has the same byte length as the input, keeping stack traces and source positions aligned.
-
-**Parameters**
-
-| Parameter   | Type               | Default | Description                                                                                                         |
-| ----------- | ------------------ | ------- | ------------------------------------------------------------------------------------------------------------------- |
-| `input`     | `string \| Buffer` | —       | The TypeScript source to strip, as a string or a `Buffer`.                                                          |
-| `encoding?` | `BufferEncoding`   | —       | Encoding used to decode `input` when it is a string (default `'utf8'`); ignored when `input` is already a `Buffer`. |
-| `opts?`     | `object`           | —       | An options object; currently unused.                                                                                |
-
-**Throws**
-
-- `TypeError` — `input` is neither a string nor a buffer.
-- `SyntaxError` — the source contains non-erasable TypeScript syntax (`enum`/`const enum`, `namespace`/`module` with a body, parameter properties, or angle-bracket type assertions).
-
-<!-- bare-refgen:api end -->
+See the [full API reference](https://docs.pears.com/reference/bare/modules/bare-type-stripper).
 
 ## What gets stripped
 
