@@ -20,9 +20,7 @@ strip(`
 
 ## API
 
-See the [`bare-type-stripper` reference][reference].
-
-[reference]: https://docs.pears.com/reference/bare/modules/bare-type-stripper
+See the [`bare-type-stripper` reference](https://docs.pears.com/reference/bare/modules/bare-type-stripper).
 
 ## What gets stripped
 
