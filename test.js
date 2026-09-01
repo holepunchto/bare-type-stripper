@@ -1323,6 +1323,183 @@ test('lex emits paren flag for relocated )', (t) => {
   t.is(last[2] & strip.constants.PAREN, strip.constants.PAREN)
 })
 
+test('specifier list with a non-specifier byte terminates', (t) => {
+  eq(t, 'import{@', 'import{@')
+  eq(t, 'import {\0', 'import {\0')
+  eq(t, 'x = 1;import{@', 'x = 1;import{@')
+})
+
+test('export specifier list with a star terminates', (t) => {
+  eq(t, 'export{*', 'export{*')
+})
+
+test('class body truncated after a private name', (t) => {
+  eq(t, 'class{#', 'class{#')
+  eq(t, 'class C {#', 'class C {#')
+})
+
+test('unclosed parameter lists do not rescan the tail', (t) => {
+  const src = '('.repeat(256 * 1024)
+  eq(t, src, src)
+})
+
+test('input must be a string or buffer', (t) => {
+  for (const input of [undefined, null, 123, {}, [], () => {}, true]) {
+    t.exception.all(() => strip(input), /must be a string or buffer/)
+  }
+})
+
+test('every view strips its whole byte range', (t) => {
+  const source = Buffer.alloc(24)
+  source.write('const x: number = 1')
+
+  const expected = 'const x         = 1\0\0\0\0\0'
+
+  const { buffer, byteOffset } = source
+
+  for (const view of [
+    source,
+    new Uint8Array(buffer, byteOffset, 24),
+    new Int8Array(buffer, byteOffset, 24),
+    new Uint8ClampedArray(buffer, byteOffset, 24),
+    new Uint16Array(buffer, byteOffset, 12),
+    new Int16Array(buffer, byteOffset, 12),
+    new Uint32Array(buffer, byteOffset, 6),
+    new Int32Array(buffer, byteOffset, 6),
+    new Float32Array(buffer, byteOffset, 6),
+    new Float64Array(buffer, byteOffset, 3),
+    new BigInt64Array(buffer, byteOffset, 3),
+    new DataView(buffer, byteOffset, 24)
+  ]) {
+    t.is(strip(view).toString(), expected)
+  }
+})
+
+test('input must not be backed by a shared array buffer', (t) => {
+  const buffer = new SharedArrayBuffer(24)
+  new Uint8Array(buffer).set(Buffer.from('const x: number = 1'.padEnd(24)))
+
+  for (const view of [new Uint8Array(buffer), new Uint16Array(buffer), new DataView(buffer)]) {
+    t.exception.all(() => strip(view), /must be a buffer/)
+  }
+})
+
+test('a view strips only its own range', (t) => {
+  const buffer = Buffer.from('let a: A = 1;const x: number = 1;let b: B = 2')
+
+  const offset = 'let a: A = 1;'.length
+  const length = 'const x: number = 1'.length
+
+  const expected = 'const x         = 1'
+
+  t.is(
+    strip(new Uint8Array(buffer.buffer, buffer.byteOffset + offset, length)).toString(),
+    expected
+  )
+  t.is(strip(new DataView(buffer.buffer, buffer.byteOffset + offset, length)).toString(), expected)
+})
+
+test('empty input', (t) => {
+  t.is(strip(Buffer.alloc(0)).toString(), '')
+  t.is(strip(new Uint8Array(0)).toString(), '')
+  t.is(strip(new DataView(new ArrayBuffer(0))).toString(), '')
+  t.is(strip('').toString(), '')
+})
+
+test('binding requires a buffer', (t) => {
+  const binding = require('#binding')
+
+  for (const buffer of [
+    undefined,
+    null,
+    123,
+    {},
+    'source',
+    new SharedArrayBuffer(8),
+    new Uint8Array(8),
+    new DataView(new ArrayBuffer(8))
+  ]) {
+    t.exception.all(() => binding.lex(buffer, 0, 8), /must be a buffer/)
+  }
+})
+
+test('binding requires a numeric offset and length', (t) => {
+  const binding = require('#binding')
+
+  const buffer = new ArrayBuffer(8)
+
+  for (const offset of [undefined, null, {}, '0', () => {}]) {
+    t.exception.all(() => binding.lex(buffer, offset, 8), /Offset must be a number/)
+  }
+
+  for (const length of [undefined, null, {}, '8', () => {}]) {
+    t.exception.all(() => binding.lex(buffer, 0, length), /Length must be a number/)
+  }
+})
+
+test('binding bounds checks the offset and length', (t) => {
+  const binding = require('#binding')
+
+  const buffer = new ArrayBuffer(8)
+
+  for (const [offset, length] of [
+    [-1, 0],
+    [0, -1],
+    [0, 9],
+    [8, 1],
+    [9, 0],
+    [4, 5],
+    [Number.MAX_SAFE_INTEGER, 0],
+    [0, Number.MAX_SAFE_INTEGER]
+  ]) {
+    t.exception.all(() => binding.lex(buffer, offset, length), /out of bounds/)
+  }
+
+  t.alike(binding.lex(buffer, 0, 8), new Uint32Array(0))
+  t.alike(binding.lex(buffer, 8, 0), new Uint32Array(0))
+})
+
+test('binding ranges are relative to the offset', (t) => {
+  const binding = require('#binding')
+
+  const buffer = Buffer.from('let a: A = 1;const x: number = 1')
+
+  const offset = 'let a: A = 1;'.length
+  const length = 'const x: number = 1'.length
+
+  t.alike(
+    binding.lex(buffer.buffer, buffer.byteOffset + offset, length),
+    new Uint32Array([7, 16, 0])
+  )
+})
+
+test('binding treats a detached array buffer as empty', (t) => {
+  const binding = require('#binding')
+
+  const buffer = new ArrayBuffer(8)
+
+  structuredClone(buffer, { transfer: [buffer] })
+
+  t.alike(binding.lex(buffer, 0, 0), new Uint32Array(0))
+  t.exception.all(() => binding.lex(buffer, 0, 8), /out of bounds/)
+})
+
+test('binding does not run JavaScript while validating', (t) => {
+  const binding = require('#binding')
+
+  const trap = new Proxy(
+    {},
+    {
+      get: () => t.fail('trap ran'),
+      has: () => t.fail('trap ran')
+    }
+  )
+
+  t.exception.all(() => binding.lex(trap, 0, 8), /must be a buffer/)
+  t.exception.all(() => binding.lex(new ArrayBuffer(8), trap, 8), /Offset must be a number/)
+  t.exception.all(() => binding.lex(new ArrayBuffer(8), 0, trap), /Length must be a number/)
+})
+
 function eq(t, input, expected) {
   t.is(strip(input).toString(), expected)
 }
