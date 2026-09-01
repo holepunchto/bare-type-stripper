@@ -6,13 +6,9 @@ module.exports = exports = function strip(input, encoding, opts = {}) {
     encoding = null
   }
 
-  if (typeof input !== 'string' && !ArrayBuffer.isView(input)) {
-    throw new TypeError(`Input must be a string or buffer. Received type ${typeof input}`)
-  }
+  const buffer = toBuffer(input, encoding)
 
-  const buffer = typeof input === 'string' ? Buffer.from(input, encoding) : input
-
-  const ranges = binding.lex(buffer)
+  const ranges = binding.lex(buffer.buffer, buffer.byteOffset, buffer.byteLength)
 
   check(buffer, ranges)
 
@@ -25,11 +21,9 @@ exports.lex = function lex(input, encoding, opts = {}) {
     encoding = null
   }
 
-  if (typeof input !== 'string' && !ArrayBuffer.isView(input)) {
-    throw new TypeError(`Input must be a string or buffer. Received type ${typeof input}`)
-  }
+  const buffer = toBuffer(input, encoding)
 
-  const ranges = binding.lex(typeof input === 'string' ? Buffer.from(input, encoding) : input)
+  const ranges = binding.lex(buffer.buffer, buffer.byteOffset, buffer.byteLength)
 
   // The binding returns the ranges as a flat Uint32Array of (start, end,
   // flags) triples; reshape into the nested form.
@@ -66,6 +60,18 @@ exports.constants = {
    * callers can implement their own handling.
    */
   ERROR: binding.ERROR
+}
+
+function toBuffer(input, encoding) {
+  if (typeof input === 'string') return Buffer.from(input, encoding)
+
+  if (!ArrayBuffer.isView(input)) {
+    throw new TypeError(`Input must be a string or buffer. Received type ${typeof input}`)
+  }
+
+  // Views with a wider element type, such as 'Float64Array' or 'DataView',
+  // are lexed as the bytes they span rather than as their elements.
+  return Buffer.from(input.buffer, input.byteOffset, input.byteLength)
 }
 
 function check(buffer, ranges) {

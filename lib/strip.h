@@ -20,6 +20,11 @@ enum {
 #define BARE_TYPE_STRIPPER__PAREN_CACHE_SIZE 512 // Power of two
 #define BARE_TYPE_STRIPPER__PAREN_STACK_SIZE 512
 
+// Arrow-function lookahead budget, as a multiple of the input length. Cached
+// matches keep well-formed input far below this; it only binds on input
+// crafted to defeat the cache.
+#define BARE_TYPE_STRIPPER__SCAN_BUDGET_FACTOR 64
+
 // Lexer context. Carries the input, the accumulated strip ranges, and a
 // small cache of paren match positions used by the arrow-function lookahead.
 typedef struct {
@@ -39,6 +44,13 @@ typedef struct {
   // position 2 or later, so 0 can't be a valid close.
   size_t paren_open[BARE_TYPE_STRIPPER__PAREN_CACHE_SIZE];
   size_t paren_close[BARE_TYPE_STRIPPER__PAREN_CACHE_SIZE];
+
+  // Bytes the arrow-function lookahead may still scan. The match cache keeps
+  // well-formed input linear, but a '(' that never closes can't be cached, so
+  // without a budget every '(' in an unclosed tail would rescan it. Running
+  // the budget down stops the lookahead from recognizing further arrow
+  // functions, degrading the same way exceeding MAX_DEPTH does.
+  size_t scan_budget;
 } bare_type_stripper_t;
 
 // Previous-token classification, used to decide how to interpret the next
@@ -99,16 +111,18 @@ bare_type_stripper__add_range_flags(bare_type_stripper_t *ctx, size_t start, siz
   assert(end > start);
 
   if (ctx->len == ctx->cap) {
+    if (ctx->cap > UINT32_MAX / 2) return -1;
+
     uint32_t cap = ctx->cap == 0 ? 64 : ctx->cap * 2;
 
-    uint32_t *ranges = realloc(ctx->ranges, cap * 3 * sizeof(uint32_t));
+    uint32_t *ranges = realloc(ctx->ranges, (size_t) cap * 3 * sizeof(uint32_t));
     if (ranges == NULL) return -1;
 
     ctx->ranges = ranges;
     ctx->cap = cap;
   }
 
-  uint32_t *entry = &ctx->ranges[ctx->len * 3];
+  uint32_t *entry = &ctx->ranges[(size_t) ctx->len * 3];
 
   entry[0] = (uint32_t) start;
   entry[1] = (uint32_t) end;
@@ -479,6 +493,10 @@ bare_type_stripper__scan_group(bare_type_stripper_t *ctx, size_t i) {
   size_t slot = i & (BARE_TYPE_STRIPPER__PAREN_CACHE_SIZE - 1);
   if (ctx->paren_close[slot] != 0 && ctx->paren_open[slot] == i) return ctx->paren_close[slot];
 
+  if (ctx->scan_budget == 0) return n;
+
+  size_t start = i;
+
   // Positions of the unclosed '(' at each depth, so every nested match
   // discovered along the way gets cached as well. Levels deeper than the
   // stack still balance, they just aren't recorded.
@@ -514,6 +532,25 @@ bare_type_stripper__scan_group(bare_type_stripper_t *ctx, size_t i) {
     }
 
     i++;
+  }
+
+  size_t scanned = i - start;
+
+  ctx->scan_budget = ctx->scan_budget > scanned ? ctx->scan_budget - scanned : 0;
+
+  // Groups still open at end of input never match. Record them as closing
+  // there so the next '(' in an unclosed tail answers from the cache instead
+  // of rescanning that tail.
+  if (depth > 0) {
+    int open_depth = depth < BARE_TYPE_STRIPPER__PAREN_STACK_SIZE ? depth : BARE_TYPE_STRIPPER__PAREN_STACK_SIZE;
+
+    for (int d = 0; d < open_depth; d++) {
+      size_t open = opens[d];
+      size_t unclosed_slot = open & (BARE_TYPE_STRIPPER__PAREN_CACHE_SIZE - 1);
+
+      ctx->paren_open[unclosed_slot] = open;
+      ctx->paren_close[unclosed_slot] = i;
+    }
   }
 
   return i;
@@ -1199,9 +1236,11 @@ bare_type_stripper__process_class_body(bare_type_stripper_t *ctx, size_t *result
     i = bare_type_stripper__skip_method_head_prefix(s, n, i, true);
 
     // Member name.
-    if (u(0) == '#') i++; // Private name
+    if (i < n && u(0) == '#') i++; // Private name
 
-    if (i < n && ids(u(0))) {
+    if (i >= n) break;
+
+    if (ids(u(0))) {
       while (i < n && id(u(0))) i++;
     } else if (u(0) == '\'' || u(0) == '"') {
       i = bare_type_stripper__skip_string(s, n, i);
@@ -1678,6 +1717,13 @@ bare_type_stripper__process_named_specifiers(bare_type_stripper_t *ctx, size_t *
     i = bare_type_stripper__skip_trivia(s, n, i);
     if (i >= n) break;
     if (u(0) == '}') break;
+
+    // Nothing below consumes a byte that can't open a specifier name, so step
+    // over it here to keep the loop advancing.
+    if (!id(u(0)) && u(0) != '\'' && u(0) != '"' && !(allow_star && u(0) == '*')) {
+      i++;
+      continue;
+    }
 
     size_t spec_start = i;
     bool is_type = false;
@@ -3059,6 +3105,8 @@ bare_type_stripper__lex(bare_type_stripper_t *ctx, const utf8_t *s, size_t n) {
   ctx->ranges = NULL;
   ctx->len = 0;
   ctx->cap = 0;
+
+  ctx->scan_budget = n * BARE_TYPE_STRIPPER__SCAN_BUDGET_FACTOR;
 
   memset(ctx->paren_close, 0, sizeof(ctx->paren_close));
 
