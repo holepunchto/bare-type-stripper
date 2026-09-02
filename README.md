@@ -60,6 +60,10 @@ Constructs with runtime semantics that a purely lexical stripper cannot reproduc
 
 The stripper targets plain `.ts` sources; JSX (`.tsx`) is not supported and is reported as non-erasable syntax.
 
+## Threat model
+
+`bare-type-stripper` is one of the addons Bare compiles into its binary, so it inherits [Bare's threat model](https://github.com/holepunchto/bare/blob/main/docs/threat-model.md). See [`docs/threat-model.md`](docs/threat-model.md) for where this addon sits in it.
+
 ## License
 
 Apache-2.0
