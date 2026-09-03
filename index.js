@@ -6,7 +6,10 @@ module.exports = exports = function strip(input, encoding, opts = {}) {
     encoding = null
   }
 
-  const buffer = toBuffer(input, encoding)
+  // Strip a copy of the input: the ranges must be applied to the same bytes
+  // they were lexed from, which shared memory would otherwise let another
+  // thread change in between.
+  const buffer = Buffer.from(toBuffer(input, encoding))
 
   const ranges = binding.lex(buffer.buffer, buffer.byteOffset, buffer.byteLength)
 
@@ -101,9 +104,7 @@ function check(buffer, ranges) {
   }
 }
 
-function apply(buffer, ranges) {
-  const out = Buffer.from(buffer)
-
+function apply(out, ranges) {
   // The lexer emits ranges in scan order: A single-byte flag patch that
   // overlaps a wider strip range (PAREN relocates ')' into a stripped span)
   // always follows that range, so applying in array order keeps the patched
