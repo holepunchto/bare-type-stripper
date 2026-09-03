@@ -29,6 +29,8 @@ It reaches nothing and keeps nothing.
 
 It is C walking source that an attacker chose, like the lexer, and the module system runs it on code it may not trust.
 
+The input may be shared memory that another thread writes while it is being read, so it is copied before it is lexed. The ranges the lexer records then describe the same bytes they are applied to.
+
 Its output is run, though, and that is the difference. Stripping rewrites the source, so a region stripped wrongly makes the program mean something else, and the source may have been trusted going in. Replacing with spaces keeps the positions and line numbers right, which keeps stack traces honest, but it does not make a wrong strip safe.
 
 Stripping is heuristic on purpose. Leaving type syntax alone, or turning the input down, is a correctness matter. Stripping something that was not a type is not.

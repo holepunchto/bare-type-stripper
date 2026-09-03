@@ -26,6 +26,7 @@ target_compile_definitions(
   ${bare_type_stripper_napi}
   PRIVATE
     NAPI_VERSION=9
+    NAPI_EXPERIMENTAL
 )
 
 resolve_node_module(bare-compat-napi compat)

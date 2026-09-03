@@ -1375,12 +1375,14 @@ test('every view strips its whole byte range', (t) => {
   }
 })
 
-test('input must not be backed by a shared array buffer', (t) => {
+test('every view of a shared array buffer strips its whole byte range', (t) => {
   const buffer = new SharedArrayBuffer(24)
   new Uint8Array(buffer).set(Buffer.from('const x: number = 1'.padEnd(24)))
 
+  const expected = 'const x         = 1     '
+
   for (const view of [new Uint8Array(buffer), new Uint16Array(buffer), new DataView(buffer)]) {
-    t.exception.all(() => strip(view), /must be a buffer/)
+    t.is(strip(view).toString(), expected)
   }
 })
 
@@ -1415,7 +1417,6 @@ test('binding requires a buffer', (t) => {
     123,
     {},
     'source',
-    new SharedArrayBuffer(8),
     new Uint8Array(8),
     new DataView(new ArrayBuffer(8))
   ]) {
@@ -1451,6 +1452,25 @@ test('binding bounds checks the offset and length', (t) => {
     [4, 5],
     [Number.MAX_SAFE_INTEGER, 0],
     [0, Number.MAX_SAFE_INTEGER]
+  ]) {
+    t.exception.all(() => binding.lex(buffer, offset, length), /out of bounds/)
+  }
+
+  t.alike(binding.lex(buffer, 0, 8), new Uint32Array(0))
+  t.alike(binding.lex(buffer, 8, 0), new Uint32Array(0))
+})
+
+test('binding bounds checks a shared offset and length', (t) => {
+  const binding = require('#binding')
+
+  const buffer = new SharedArrayBuffer(8)
+
+  for (const [offset, length] of [
+    [-1, 0],
+    [0, -1],
+    [0, 9],
+    [8, 1],
+    [9, 0]
   ]) {
     t.exception.all(() => binding.lex(buffer, offset, length), /out of bounds/)
   }

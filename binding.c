@@ -39,7 +39,11 @@ bare_type_stripper_lex(js_env_t *env, js_callback_info_t *info) {
   err = js_is_arraybuffer(env, argv[0], &is_arraybuffer);
   assert(err == 0);
 
-  if (!is_arraybuffer) {
+  bool is_sharedarraybuffer;
+  err = js_is_sharedarraybuffer(env, argv[0], &is_sharedarraybuffer);
+  assert(err == 0);
+
+  if (!is_arraybuffer && !is_sharedarraybuffer) {
     err = js_throw_type_error(env, NULL, "Input must be a buffer");
     assert(err == 0);
 
@@ -48,7 +52,13 @@ bare_type_stripper_lex(js_env_t *env, js_callback_info_t *info) {
 
   void *data;
   size_t byte_len;
-  err = js_get_arraybuffer_info(env, argv[0], &data, &byte_len);
+
+  if (is_sharedarraybuffer) {
+    err = js_get_sharedarraybuffer_info(env, argv[0], &data, &byte_len);
+  } else {
+    err = js_get_arraybuffer_info(env, argv[0], &data, &byte_len);
+  }
+
   assert(err == 0);
 
   int64_t offset;
@@ -83,8 +93,29 @@ bare_type_stripper_lex(js_env_t *env, js_callback_info_t *info) {
 
   utf8_t *input = (utf8_t *) data + offset;
 
+  // Another thread may write shared memory while we read it, and the ranges we
+  // record must describe one input. Lex a private copy instead.
+  utf8_t *copy = NULL;
+
+  if (is_sharedarraybuffer && len > 0) {
+    copy = malloc((size_t) len);
+
+    if (copy == NULL) {
+      err = js_throw_error(env, NULL, "Out of memory");
+      assert(err == 0);
+
+      return NULL;
+    }
+
+    memcpy(copy, input, (size_t) len);
+
+    input = copy;
+  }
+
   bare_type_stripper_t ctx;
   err = bare_type_stripper__lex(&ctx, input, (size_t) len);
+
+  free(copy);
 
   if (err < 0) {
     free(ctx.ranges);
